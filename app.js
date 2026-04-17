@@ -1,7 +1,15 @@
+// Add this at the very top of app.js to kill the old Service Worker for everyone
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+            registration.unregister();
+            console.log('Old Service Worker removed');
+        }
+    });
+}
 let currentLang = 'ar';
 let activeTimer = null;
 const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // "1234" in SHA-256
-
 // --- Init Application ---
 document.addEventListener('DOMContentLoaded', async () => {
     await initFleetDB();
