@@ -1,11 +1,9 @@
 let currentLang = 'ar';
 let activeTimer = null;
 let selectedVehicleForRent = null;
-let currentQRUrl = ""; // لتخزين رابط الزبون الحالي قبل البدء
 const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; 
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Check Client Mode (QR Scan)
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('client') === '1') {
         initClientMode(urlParams);
@@ -20,7 +18,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkActiveSessions();
 });
 
-// --- Beep Sound Generator ---
 function playBeep(freq, duration) {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -40,9 +37,12 @@ function initClientMode(params) {
     clientView.classList.remove('hidden');
     
     document.getElementById('client-vehicle-name').textContent = params.get('v');
-    const expiresAt = parseInt(params.get('expiresAt'));
     
-    let alerts = {}; // تتبع تنبيهات هاتف الزبون
+    // استخدام الوقت المتبقي لحساب وقت الانتهاء المحلي بدقة بغض النظر عن توقيت الهاتف
+    const remainingMsAtStart = parseInt(params.get('rem'));
+    const expiresAt = Date.now() + remainingMsAtStart; 
+    
+    let alerts = {}; 
 
     const clientInterval = setInterval(() => {
         const remainingMs = expiresAt - Date.now();
@@ -51,9 +51,13 @@ function initClientMode(params) {
         if (remainingMs <= 0) {
             document.getElementById('client-timer').textContent = "00:00";
             document.getElementById('client-timer').style.color = "red";
+            if (!alerts['0']) {
+                alerts['0'] = true;
+                playBeep(800, 1000); // رنة نهائية واحدة
+                if(navigator.vibrate) navigator.vibrate([1000]);
+            }
             clearInterval(clientInterval); // إيقاف العداد نهائياً للزبون
         } else {
-            // تنبيهات الزبون
             if (remainingSecs === 60 && !alerts['60']) {
                 alerts['60'] = true;
                 if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
@@ -75,7 +79,6 @@ function initClientMode(params) {
     }, 1000);
 }
 
-// --- Data Setup ---
 async function initFleetDB() {
     const storedFleet = await DB.getAll('fleet');
     if (storedFleet.length === 0) {
@@ -85,7 +88,6 @@ async function initFleetDB() {
     }
 }
 
-// --- Events ---
 function setupEventListeners() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -115,7 +117,6 @@ function setupEventListeners() {
         } else alert("Invalid PIN");
     });
 
-    // Auto-calculate logic in modal & update QR
     document.getElementById('setup-da').addEventListener('input', (e) => {
         if (!selectedVehicleForRent) return;
         const da = parseFloat(e.target.value) || 0;
@@ -135,7 +136,6 @@ function setupEventListeners() {
     document.getElementById('confirm-rent-btn').addEventListener('click', finalizeStartRental);
 }
 
-// --- UI Logic ---
 function applyTheme(theme) {
     document.body.className = theme === 'dark' ? 'dark-mode' : '';
     UIState.set('theme', theme);
@@ -159,7 +159,6 @@ function closeModal(id) {
     document.getElementById(id).classList.add('hidden');
 }
 
-// --- Fleet Render ---
 async function renderFleet() {
     const fleet = await DB.getAll('fleet');
     const grid = document.getElementById('fleet-grid');
@@ -184,7 +183,6 @@ async function renderFleet() {
     });
 }
 
-// --- Rental Setup & QR Before Start ---
 async function openRentalSetup(vehicleId) {
     const fleet = await DB.getAll('fleet');
     selectedVehicleForRent = fleet.find(v => v.id === vehicleId);
@@ -196,34 +194,26 @@ async function openRentalSetup(vehicleId) {
     const label = selectedVehicleForRent.billingType === 'timer' ? translations[currentLang].min : translations[currentLang].tour;
     document.getElementById('setup-unit-label').textContent = label + ":";
 
-    // عرض QR مباشرة قبل البدء
     updatePreStartQR(selectedVehicleForRent.unit);
-
     document.getElementById('setup-modal').classList.remove('hidden');
 }
 
+// QR قبل البداية (يعتمد على إجمالي الوقت)
 function updatePreStartQR(units) {
     const qrContainer = document.getElementById('setup-qr-container');
-    qrContainer.innerHTML = ''; // تنظيف الكود القديم
+    qrContainer.innerHTML = ''; 
     
     if (selectedVehicleForRent.billingType !== 'timer') {
-        qrContainer.innerHTML = '<p style="color:var(--text-secondary); font-size:0.8rem;">(لا يوجد QR للسيارات بنظام الجولات)</p>';
+        qrContainer.innerHTML = '<p style="color:var(--text-secondary); font-size:0.8rem;">(لا يوجد QR للسيارات)</p>';
         return;
     }
 
     const durationMs = units * 60000;
-    // نحسب الوقت المستقبلي افتراضياً ابتداءً من هذه اللحظة
-    const futureExpiresAt = Date.now() + durationMs; 
-    
     const currentUrl = window.location.origin + window.location.pathname;
-    const clientUrl = `${currentUrl}?client=1&expiresAt=${futureExpiresAt}&v=${encodeURIComponent(selectedVehicleForRent.name)}`;
+    // نرسل `rem` (الوقت المتبقي الكلي)
+    const clientUrl = `${currentUrl}?client=1&rem=${durationMs}&v=${encodeURIComponent(selectedVehicleForRent.name)}`;
     
-    // إنشاء الباركود الجديد للزبون
-    new QRCode(qrContainer, {
-        text: clientUrl,
-        width: 150,
-        height: 150
-    });
+    new QRCode(qrContainer, { text: clientUrl, width: 150, height: 150 });
 }
 
 async function finalizeStartRental() {
@@ -234,7 +224,6 @@ async function finalizeStartRental() {
     await DB.saveRecord('fleet', selectedVehicleForRent);
 
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
-    
     const durationMs = selectedVehicleForRent.billingType === 'timer' ? (units * 60000) : null;
     
     const newSession = {
@@ -258,10 +247,27 @@ async function finalizeStartRental() {
     document.querySelector('.nav-btn[data-target="rental-view"]').click();
 }
 
-// --- Multi-Session Monitor (Countdown & Alerts for Admin) ---
+// QR أثناء الجلسة (يحسب الوقت المتبقي في لحظة النقر)
+window.showActiveQR = function(index) {
+    const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
+    const session = sessions[index];
+    
+    if(session.billingType !== 'timer') return;
+
+    const remainingMs = session.expiresAt - Date.now();
+    if(remainingMs <= 0) return alert("الوقت منتهي");
+
+    const currentUrl = window.location.origin + window.location.pathname;
+    const clientUrl = `${currentUrl}?client=1&rem=${remainingMs}&v=${encodeURIComponent(session.vehicleName)}`;
+
+    const qrContainer = document.getElementById('active-qr-container');
+    qrContainer.innerHTML = '';
+    new QRCode(qrContainer, { text: clientUrl, width: 200, height: 200 });
+    document.getElementById('qr-modal').classList.remove('hidden');
+}
+
 function checkActiveSessions() {
     const container = document.getElementById('active-rental-card');
-    
     if (activeTimer) clearInterval(activeTimer);
     
     activeTimer = setInterval(() => {
@@ -282,8 +288,16 @@ function checkActiveSessions() {
                 const remainingMs = s.expiresAt - Date.now();
                 const remainingSecs = Math.floor(remainingMs / 1000);
 
-                // تنبيهات هاتف الموظف فقط إذا لم ينتهِ الوقت
-                if (remainingMs > 0) {
+                if (remainingMs <= 0) {
+                    timeDisplay = "00:00 (منتهي)";
+                    timerClass = "text-danger";
+                    // رنة واحدة فقط عند الصفر لمنع التكرار
+                    if (!s.alerts['0']) {
+                        s.alerts['0'] = true; needsSave = true;
+                        playBeep(800, 1000); 
+                        if(navigator.vibrate) navigator.vibrate([1000]);
+                    }
+                } else {
                     if (remainingSecs === 60 && !s.alerts['60']) {
                         s.alerts['60'] = true; needsSave = true;
                         if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
@@ -296,12 +310,7 @@ function checkActiveSessions() {
                         s.alerts['10'] = true; needsSave = true;
                         playBeep(800, 200); setTimeout(() => playBeep(800, 200), 300); setTimeout(() => playBeep(800, 500), 600);
                     }
-                }
 
-                if (remainingMs <= 0) {
-                    timeDisplay = "00:00 (منتهي)";
-                    timerClass = "text-danger";
-                } else {
                     const m = Math.floor(remainingMs / 60000);
                     const sec = Math.floor((remainingMs % 60000) / 1000);
                     timeDisplay = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
@@ -316,6 +325,10 @@ function checkActiveSessions() {
             card.style.borderInlineStart = `5px solid ${s.color}`;
             card.style.marginBottom = "12px";
             
+            // إضافة زر QR للمركبات المؤقتة
+            const qrBtnHtml = s.billingType === 'timer' ? 
+                `<button class="btn btn-secondary" style="margin:0; padding:8px;" onclick="showActiveQR(${index})">QR</button>` : '';
+
             card.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="text-align: ${currentLang === 'ar' ? 'right' : 'left'}; width:100%">
@@ -323,6 +336,7 @@ function checkActiveSessions() {
                         <p class="${timerClass}" style="font-size: 1.5rem; margin: 5px 0;" dir="ltr">${timeDisplay}</p>
                         <p><strong>${s.price} DA</strong></p>
                         <div style="margin-top:10px; display:flex; gap:10px;">
+                            ${qrBtnHtml}
                             <button class="btn btn-danger" style="margin:0; padding:8px; flex:1;" onclick="endRental(${index})">
                                 ${translations[currentLang].endSession}
                             </button>
@@ -338,7 +352,6 @@ function checkActiveSessions() {
     }, 1000);
 }
 
-// --- End Rental ---
 async function endRental(index) {
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     const session = sessions[index];
