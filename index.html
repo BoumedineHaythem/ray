@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title data-i18n="appTitle">إدارة تأجير المركبات الكهربائية</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#121212">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-mode">
+    <div id="offline-banner" class="hidden" data-i18n="offline">أنت غير متصل بالإنترنت</div>
+
+    <header>
+        <h1 data-i18n="appTitle">إدارة أسطول EV</h1>
+        <div class="header-controls">
+            <button id="theme-toggle">🌙/☀️</button>
+            <button id="lang-toggle">EN</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="fleet-view" class="view active">
+            <h2 data-i18n="availableFleet">الأسطول المتاح</h2>
+            <div id="fleet-grid" class="grid"></div>
+        </section>
+
+        <section id="rental-view" class="view hidden">
+            <h2 data-i18n="activeSession">الجلسة الحالية</h2>
+            <div id="active-rental-card" class="card">
+                </div>
+            <button id="end-rental-btn" class="btn btn-danger" data-i18n="endSession">إنهاء الجلسة</button>
+        </section>
+
+        <section id="logs-view" class="view hidden">
+            <h2 data-i18n="history">سجل التأجير</h2>
+            <button id="export-csv-btn" class="btn btn-secondary" data-i18n="exportCSV">تصدير CSV</button>
+            <ul id="logs-list" class="list"></ul>
+        </section>
+
+        <section id="analytics-view" class="view hidden">
+            <h2 data-i18n="analytics">الإحصائيات</h2>
+            
+            <div id="pin-protection" class="card">
+                <p data-i18n="enterPin">أدخل رمز PIN للوصول:</p>
+                <input type="password" id="pin-input" pattern="[0-9]*" inputmode="numeric">
+                <button id="unlock-analytics-btn" class="btn btn-primary" data-i18n="unlock">فتح</button>
+            </div>
+
+            <div id="analytics-dashboard" class="hidden">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3 data-i18n="totalRevenue">إجمالي الإيرادات</h3>
+                        <p id="stat-revenue">0.00</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 data-i18n="mostUsed">الأكثر استخداماً</h3>
+                        <p id="stat-popular">-</p>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-target="fleet-view" data-i18n="fleet">الأسطول</button>
+        <button class="nav-btn" data-target="rental-view" data-i18n="rental">التأجير</button>
+        <button class="nav-btn" data-target="logs-view" data-i18n="history">السجل</button>
+        <button class="nav-btn" data-target="analytics-view" data-i18n="analytics">إحصائيات</button>
+    </nav>
+
+    <div id="alert-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="modal-title">تنبيه</h3>
+            <p id="modal-message">رسالة التنبيه</p>
+            <button id="modal-close" class="btn btn-primary" data-i18n="close">إغلاق</button>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="storage.js"></script>
+    <script src="analytics.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
