@@ -1,6 +1,7 @@
 let currentLang = 'ar';
 let activeTimer = null;
 let selectedVehicleForRent = null;
+let currentQRUrl = ""; // لتخزين رابط الزبون الحالي قبل البدء
 const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -19,7 +20,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkActiveSessions();
 });
 
-// --- Client Mode ---
+// --- Beep Sound Generator ---
+function playBeep(freq, duration) {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(ctx.destination);
+        osc.start();
+        setTimeout(() => osc.stop(), duration);
+    } catch(e) {}
+}
+
+// --- Client Mode (QR Page) ---
 function initClientMode(params) {
     document.getElementById('app-content').classList.add('hidden');
     const clientView = document.getElementById('client-view');
@@ -28,14 +42,33 @@ function initClientMode(params) {
     document.getElementById('client-vehicle-name').textContent = params.get('v');
     const expiresAt = parseInt(params.get('expiresAt'));
     
-    setInterval(() => {
-        const remaining = expiresAt - Date.now();
-        if (remaining <= 0) {
+    let alerts = {}; // تتبع تنبيهات هاتف الزبون
+
+    const clientInterval = setInterval(() => {
+        const remainingMs = expiresAt - Date.now();
+        const remainingSecs = Math.floor(remainingMs / 1000);
+
+        if (remainingMs <= 0) {
             document.getElementById('client-timer').textContent = "00:00";
             document.getElementById('client-timer').style.color = "red";
+            clearInterval(clientInterval); // إيقاف العداد نهائياً للزبون
         } else {
-            const m = Math.floor(remaining / 60000);
-            const s = Math.floor((remaining % 60000) / 1000);
+            // تنبيهات الزبون
+            if (remainingSecs === 60 && !alerts['60']) {
+                alerts['60'] = true;
+                if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                playBeep(440, 500);
+            } else if (remainingSecs === 30 && !alerts['30']) {
+                alerts['30'] = true;
+                if(navigator.vibrate) navigator.vibrate([100, 100, 100, 100, 100]);
+                playBeep(600, 300); setTimeout(() => playBeep(600, 300), 400);
+            } else if (remainingSecs === 10 && !alerts['10']) {
+                alerts['10'] = true;
+                playBeep(800, 200); setTimeout(() => playBeep(800, 200), 300); setTimeout(() => playBeep(800, 500), 600);
+            }
+
+            const m = Math.floor(remainingMs / 60000);
+            const s = Math.floor((remainingMs % 60000) / 1000);
             document.getElementById('client-timer').textContent = 
                 `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         }
@@ -82,12 +115,13 @@ function setupEventListeners() {
         } else alert("Invalid PIN");
     });
 
-    // Auto-calculate logic in modal
+    // Auto-calculate logic in modal & update QR
     document.getElementById('setup-da').addEventListener('input', (e) => {
         if (!selectedVehicleForRent) return;
         const da = parseFloat(e.target.value) || 0;
         const units = (da / selectedVehicleForRent.rate) * selectedVehicleForRent.unit;
         document.getElementById('setup-unit').value = units;
+        updatePreStartQR(units);
     });
 
     document.getElementById('setup-unit').addEventListener('input', (e) => {
@@ -95,6 +129,7 @@ function setupEventListeners() {
         const units = parseFloat(e.target.value) || 0;
         const da = (units / selectedVehicleForRent.unit) * selectedVehicleForRent.rate;
         document.getElementById('setup-da').value = da;
+        updatePreStartQR(units);
     });
 
     document.getElementById('confirm-rent-btn').addEventListener('click', finalizeStartRental);
@@ -149,7 +184,7 @@ async function renderFleet() {
     });
 }
 
-// --- Rental Setup ---
+// --- Rental Setup & QR Before Start ---
 async function openRentalSetup(vehicleId) {
     const fleet = await DB.getAll('fleet');
     selectedVehicleForRent = fleet.find(v => v.id === vehicleId);
@@ -161,7 +196,34 @@ async function openRentalSetup(vehicleId) {
     const label = selectedVehicleForRent.billingType === 'timer' ? translations[currentLang].min : translations[currentLang].tour;
     document.getElementById('setup-unit-label').textContent = label + ":";
 
+    // عرض QR مباشرة قبل البدء
+    updatePreStartQR(selectedVehicleForRent.unit);
+
     document.getElementById('setup-modal').classList.remove('hidden');
+}
+
+function updatePreStartQR(units) {
+    const qrContainer = document.getElementById('setup-qr-container');
+    qrContainer.innerHTML = ''; // تنظيف الكود القديم
+    
+    if (selectedVehicleForRent.billingType !== 'timer') {
+        qrContainer.innerHTML = '<p style="color:var(--text-secondary); font-size:0.8rem;">(لا يوجد QR للسيارات بنظام الجولات)</p>';
+        return;
+    }
+
+    const durationMs = units * 60000;
+    // نحسب الوقت المستقبلي افتراضياً ابتداءً من هذه اللحظة
+    const futureExpiresAt = Date.now() + durationMs; 
+    
+    const currentUrl = window.location.origin + window.location.pathname;
+    const clientUrl = `${currentUrl}?client=1&expiresAt=${futureExpiresAt}&v=${encodeURIComponent(selectedVehicleForRent.name)}`;
+    
+    // إنشاء الباركود الجديد للزبون
+    new QRCode(qrContainer, {
+        text: clientUrl,
+        width: 150,
+        height: 150
+    });
 }
 
 async function finalizeStartRental() {
@@ -173,19 +235,18 @@ async function finalizeStartRental() {
 
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     
-    // Calculate expiration if timer based
     const durationMs = selectedVehicleForRent.billingType === 'timer' ? (units * 60000) : null;
     
     const newSession = {
         vehicleId: selectedVehicleForRent.id,
         vehicleName: selectedVehicleForRent.name,
         color: selectedVehicleForRent.color,
-        price: da, // Fixed amount based on custom setup
+        price: da, 
         units: units,
         billingType: selectedVehicleForRent.billingType,
         startTime: Date.now(),
         expiresAt: durationMs ? (Date.now() + durationMs) : null,
-        alerts: {} // To track 60s, 30s, 10s alerts
+        alerts: {} 
     };
     
     sessions.push(newSession);
@@ -197,20 +258,7 @@ async function finalizeStartRental() {
     document.querySelector('.nav-btn[data-target="rental-view"]').click();
 }
 
-// --- Beep Sound Generator ---
-function playBeep(freq, duration) {
-    try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        osc.connect(ctx.destination);
-        osc.start();
-        setTimeout(() => osc.stop(), duration);
-    } catch(e) {}
-}
-
-// --- Multi-Session Monitor (Countdown & Alerts) ---
+// --- Multi-Session Monitor (Countdown & Alerts for Admin) ---
 function checkActiveSessions() {
     const container = document.getElementById('active-rental-card');
     
@@ -234,18 +282,20 @@ function checkActiveSessions() {
                 const remainingMs = s.expiresAt - Date.now();
                 const remainingSecs = Math.floor(remainingMs / 1000);
 
-                // --- ALERTS LOGIC ---
-                if (remainingSecs === 60 && !s.alerts['60']) {
-                    s.alerts['60'] = true; needsSave = true;
-                    if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                    playBeep(440, 500);
-                } else if (remainingSecs === 30 && !s.alerts['30']) {
-                    s.alerts['30'] = true; needsSave = true;
-                    if(navigator.vibrate) navigator.vibrate([100, 100, 100, 100, 100]);
-                    playBeep(600, 300); setTimeout(() => playBeep(600, 300), 400);
-                } else if (remainingSecs === 10 && !s.alerts['10']) {
-                    s.alerts['10'] = true; needsSave = true;
-                    playBeep(800, 200); setTimeout(() => playBeep(800, 200), 300); setTimeout(() => playBeep(800, 500), 600);
+                // تنبيهات هاتف الموظف فقط إذا لم ينتهِ الوقت
+                if (remainingMs > 0) {
+                    if (remainingSecs === 60 && !s.alerts['60']) {
+                        s.alerts['60'] = true; needsSave = true;
+                        if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                        playBeep(440, 500);
+                    } else if (remainingSecs === 30 && !s.alerts['30']) {
+                        s.alerts['30'] = true; needsSave = true;
+                        if(navigator.vibrate) navigator.vibrate([100, 100, 100, 100, 100]);
+                        playBeep(600, 300); setTimeout(() => playBeep(600, 300), 400);
+                    } else if (remainingSecs === 10 && !s.alerts['10']) {
+                        s.alerts['10'] = true; needsSave = true;
+                        playBeep(800, 200); setTimeout(() => playBeep(800, 200), 300); setTimeout(() => playBeep(800, 500), 600);
+                    }
                 }
 
                 if (remainingMs <= 0) {
@@ -273,7 +323,6 @@ function checkActiveSessions() {
                         <p class="${timerClass}" style="font-size: 1.5rem; margin: 5px 0;" dir="ltr">${timeDisplay}</p>
                         <p><strong>${s.price} DA</strong></p>
                         <div style="margin-top:10px; display:flex; gap:10px;">
-                            <button class="btn btn-secondary" style="margin:0; padding:8px;" onclick="showQR('${s.expiresAt}', '${s.vehicleName}')">QR</button>
                             <button class="btn btn-danger" style="margin:0; padding:8px; flex:1;" onclick="endRental(${index})">
                                 ${translations[currentLang].endSession}
                             </button>
@@ -287,27 +336,6 @@ function checkActiveSessions() {
         if (needsSave) UIState.set('activeSessions', JSON.stringify(sessions));
 
     }, 1000);
-}
-
-// --- Generate QR ---
-function showQR(expiresAt, vName) {
-    if(!expiresAt || expiresAt === 'null') {
-        alert("QR متوفر فقط للمركبات بالوقت"); return;
-    }
-    const qrContainer = document.getElementById('qr-container');
-    qrContainer.innerHTML = ''; 
-    
-    // بناء الرابط الخاص بالعميل
-    const currentUrl = window.location.origin + window.location.pathname;
-    const clientUrl = `${currentUrl}?client=1&expiresAt=${expiresAt}&v=${encodeURIComponent(vName)}`;
-    
-    new QRCode(qrContainer, {
-        text: clientUrl,
-        width: 200,
-        height: 200
-    });
-    
-    document.getElementById('qr-modal').classList.remove('hidden');
 }
 
 // --- End Rental ---
@@ -337,7 +365,6 @@ async function endRental(index) {
     checkActiveSessions();
 }
 
-// --- Utilities ---
 async function sha256(message) {
     const msgBuffer = new TextEncoder().encode(message);                    
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
