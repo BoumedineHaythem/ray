@@ -66,11 +66,11 @@ function initClientMode(params) {
     const vehicleName = params.get('v') || 'EV';
     document.getElementById('client-vehicle-name').textContent = vehicleName;
 
-    const totalMs    = parseInt(params.get('total') || params.get('rem'));
-    const remainingMsAtStart = parseInt(params.get('rem'));
-    const startedAt  = Date.now() - (totalMs - remainingMsAtStart);
-    const expiresAt  = Date.now() + remainingMsAtStart;
-    const circumference = 2 * Math.PI * 88; // r=88
+    // Absolute Unix timestamps — every device counts to the SAME wall-clock moment
+    const expiresAt     = parseInt(params.get('exp'));
+    const startedAt     = parseInt(params.get('start'));
+    const totalMs       = expiresAt - startedAt;        // original planned duration
+    const circumference = 2 * Math.PI * 88;
 
     // Elapsed display
     const elapsedEl   = document.getElementById('client-elapsed');
@@ -83,17 +83,37 @@ function initClientMode(params) {
     totalEl.textContent = formatMs(totalMs);
     ringEl.style.strokeDasharray = circumference;
 
+    // graceUntil = expiresAt - totalMs  (the moment the real countdown begins)
+    const graceUntil = expiresAt - totalMs;
+
     let alerts = {};
     let currentAlertLevel = null;
 
     const tick = () => {
-        const now          = Date.now();
-        const remainingMs  = expiresAt - now;
-        const elapsedMs    = now - startedAt;
+        const now           = Date.now();
+        const remainingMs   = expiresAt - now;
+        const elapsedMs     = now - startedAt;
         const remainingSecs = Math.floor(remainingMs / 1000);
+        const inGrace       = now < graceUntil;
+
+        // ── Grace window: real timer hasn't started yet ──
+        if (inGrace) {
+            const graceLeft = Math.ceil((graceUntil - now) / 1000);
+            timerEl.textContent = formatMs(totalMs);   // show full time, not ticking
+            timerEl.style.color = 'var(--accent)';
+            ringEl.style.strokeDashoffset = 0;         // ring full
+            ringEl.style.stroke = 'var(--accent)';
+            elapsedEl.textContent = '00:00';
+            alertBox.classList.remove('hidden');
+            alertText.textContent = `📷 امسح الكود الآن — يبدأ العداد في ${graceLeft}s`;
+            return;
+        }
+
+        // Grace over — hide the scan banner if it was showing that message
+        // (real alerts will replace it below)
 
         // Elapsed
-        elapsedEl.textContent = formatMs(elapsedMs);
+        elapsedEl.textContent = formatMs(elapsedMs - (graceUntil - startedAt));
 
         if (remainingMs <= 0) {
             timerEl.textContent = '00:00';
@@ -109,7 +129,7 @@ function initClientMode(params) {
         // Timer text
         timerEl.textContent = formatMs(remainingMs);
 
-        // Ring progress
+        // Ring progress (fraction of totalMs remaining)
         const fraction = remainingMs / totalMs;
         ringEl.style.strokeDashoffset = circumference * (1 - fraction);
 
@@ -300,11 +320,16 @@ function updatePreStartQR(units) {
     }
 
     const durationMs = units * 60000;
-    const url = buildClientUrl(selectedVehicleForRent.name, durationMs, durationMs);
+    const nowMs = Date.now();
+    // Pre-start QR: session hasn't begun yet — startTime=now, expiresAt=now+duration
+    // Once started, showActiveQR uses the real stored expiresAt & startTime instead
+    const url = buildClientUrl(selectedVehicleForRent.name, nowMs + durationMs, nowMs);
     new QRCode(container, { text: url, width: 160, height: 160, colorDark: '#000000', colorLight: '#ffffff' });
 }
 
 // ── Start Rental ───────────────────────────
+const GRACE_SECONDS = 5; // seconds to scan QR before countdown starts
+
 async function finalizeStartRental() {
     const units = parseFloat(document.getElementById('setup-unit').value);
     const da    = parseFloat(document.getElementById('setup-da').value);
@@ -318,8 +343,12 @@ async function finalizeStartRental() {
     await DB.saveRecord('fleet', selectedVehicleForRent);
 
     const durationMs = selectedVehicleForRent.billingType === 'timer' ? (units * 60000) : null;
-    const sessions   = JSON.parse(UIState.get('activeSessions') || '[]');
+    const graceMs    = selectedVehicleForRent.billingType === 'timer' ? (GRACE_SECONDS * 1000) : 0;
+    const startTime  = Date.now();
+    // expiresAt is pushed forward by graceMs — the real rental clock starts after the grace window
+    const expiresAt  = durationMs ? (startTime + graceMs + durationMs) : null;
 
+    const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     sessions.push({
         vehicleId:   selectedVehicleForRent.id,
         vehicleName: selectedVehicleForRent.name,
@@ -329,17 +358,56 @@ async function finalizeStartRental() {
         price:       da,
         units:       units,
         totalMs:     durationMs,
-        startTime:   Date.now(),
-        expiresAt:   durationMs ? (Date.now() + durationMs) : null,
+        startTime,
+        expiresAt,
+        graceUntil:  durationMs ? (startTime + graceMs) : null,  // when real countdown begins
         alerts:      {}
     });
 
     UIState.set('activeSessions', JSON.stringify(sessions));
     closeModal('setup-modal');
+
+    // Show the QR grace overlay immediately so admin can display it to customer
+    if (durationMs) {
+        showGraceQR(sessions[sessions.length - 1]);
+    }
+
     renderFleet();
     checkActiveSessions();
     updateNavBadge();
     document.querySelector('.nav-btn[data-target="rental-view"]').click();
+}
+
+// Grace-period QR overlay — shown right after Start is pressed
+function showGraceQR(session) {
+    const container = document.getElementById('active-qr-container');
+    container.innerHTML = '';
+    new QRCode(container, {
+        text: buildClientUrl(session.vehicleName, session.expiresAt, session.startTime),
+        width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff'
+    });
+
+    document.getElementById('qr-modal-title').textContent = `📱 ${session.vehicleName}`;
+
+    // Countdown label inside the QR modal during grace window
+    const qrTimeEl = document.getElementById('qr-time-remaining');
+    qrTimeEl.style.color = 'var(--warning)';
+
+    let remaining = GRACE_SECONDS;
+    const tick = () => {
+        if (remaining > 0) {
+            qrTimeEl.textContent = `⏳ ${currentLang === 'ar' ? 'المؤقت يبدأ في' : 'Timer starts in'} ${remaining}s`;
+            remaining--;
+        } else {
+            qrTimeEl.textContent = currentLang === 'ar' ? '✅ العداد يعمل الآن!' : '✅ Timer is running!';
+            qrTimeEl.style.color = 'var(--success)';
+            clearInterval(graceInterval);
+        }
+    };
+    tick();
+    const graceInterval = setInterval(tick, 1000);
+
+    document.getElementById('qr-modal').classList.remove('hidden');
 }
 
 // ── Active Sessions Display ────────────────
@@ -375,12 +443,25 @@ function checkActiveSessions() {
             let elapsedText = '';
 
             if (s.billingType === 'timer') {
-                const remainingMs   = s.expiresAt - Date.now();
-                const elapsedMs     = Date.now() - s.startTime;
+                const now           = Date.now();
+                const remainingMs   = s.expiresAt - now;
+                const elapsedMs     = now - s.startTime;
                 const remainingSecs = Math.floor(remainingMs / 1000);
+                const inGrace       = s.graceUntil && now < s.graceUntil;
+                const graceLeft     = inGrace ? Math.ceil((s.graceUntil - now) / 1000) : 0;
                 elapsedText = formatMs(elapsedMs);
 
-                if (remainingMs <= 0) {
+                if (inGrace) {
+                    // ── Grace window: show QR scan countdown, real timer hasn't started ──
+                    timeDisplay = formatMs(s.totalMs);           // show full duration (not ticking yet)
+                    progressPct = 1;                             // ring full
+                    ringOffset  = 0;
+                    timerClass  = '';
+                    cardClass   = 'session-card';
+                    alertBanner = `<div class="alert-banner" style="border-color:var(--accent);color:var(--accent);background:var(--accent-glow);">
+                        📷 ${currentLang==='ar'?'امسح QR الآن — يبدأ العداد في':'Scan QR now — timer starts in'} <strong>${graceLeft}s</strong>
+                    </div>`;
+                } else if (remainingMs <= 0) {
                     timeDisplay = '00:00';
                     timerClass  = 'danger';
                     cardClass   = 'session-card expired';
@@ -389,6 +470,7 @@ function checkActiveSessions() {
                     ringOffset  = circumference;
                     if (!s.alerts['0']) { s.alerts['0'] = true; needsSave = true; playAlert('expired'); }
                 } else {
+                    // ── Normal countdown using totalMs (excludes grace, so ring fills correctly) ──
                     timeDisplay = formatMs(remainingMs);
                     progressPct = remainingMs / s.totalMs;
                     ringOffset  = circumference * (1 - progressPct);
@@ -482,7 +564,8 @@ window.showActiveQR = function(index) {
         return;
     }
 
-    const url = buildClientUrl(s.vehicleName, remainingMs, s.totalMs);
+    // Pass absolute timestamps — both admin & customer count to the SAME expiresAt
+    const url = buildClientUrl(s.vehicleName, s.expiresAt, s.startTime);
     const container = document.getElementById('active-qr-container');
     container.innerHTML = '';
     new QRCode(container, { text: url, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff' });
@@ -610,9 +693,11 @@ function formatMs(ms) {
     return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
-function buildClientUrl(name, remainingMs, totalMs) {
+// Pass absolute Unix timestamps so every device counts down to the SAME moment
+// expiresAt and startTime are Date.now()-style ms values
+function buildClientUrl(name, expiresAt, startTime) {
     const base = window.location.origin + window.location.pathname;
-    return `${base}?client=1&rem=${Math.max(0, remainingMs)}&total=${totalMs}&v=${encodeURIComponent(name)}`;
+    return `${base}?client=1&exp=${expiresAt}&start=${startTime}&v=${encodeURIComponent(name)}`;
 }
 
 async function sha256(message) {
