@@ -7,88 +7,113 @@
     <link rel="stylesheet" href="style.css">
     <meta name="theme-color" content="#121212">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- مكتبة توليد الباركود QR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body class="dark-mode">
-    <div id="offline-banner" class="hidden" data-i18n="offline">أنت غير متصل بالإنترنت</div>
+    <!-- شاشة العميل (تظهر فقط عند مسح الـ QR) -->
+    <div id="client-view" class="hidden">
+        <h1 id="client-vehicle-name">مركبة</h1>
+        <div id="client-timer">00:00</div>
+        <p data-i18n="timeRemaining">الوقت المتبقي</p>
+    </div>
 
-    <header>
-        <h1 data-i18n="appTitle">إدارة أسطول EV</h1>
-        <div class="header-controls">
-            <button id="theme-toggle">🌙/☀️</button>
-            <button id="lang-toggle">EN</button>
-        </div>
-    </header>
-
-    <main>
-        <section id="fleet-view" class="view active">
-            <h2 data-i18n="availableFleet">الأسطول المتاح</h2>
-            <div id="fleet-grid" class="grid"></div>
-        </section>
-
-        <section id="rental-view" class="view hidden">
-            <h2 data-i18n="activeSession">الجلسات الحالية</h2>
-            <div id="active-rental-card"></div>
-        </section>
-
-        <section id="logs-view" class="view hidden">
-            <h2 data-i18n="history">سجل التأجير</h2>
-            <button id="export-csv-btn" class="btn btn-secondary" data-i18n="exportCSV">تصدير CSV</button>
-            <ul id="logs-list" class="list"></ul>
-        </section>
-
-        <section id="analytics-view" class="view hidden">
-            <h2 data-i18n="analytics">الإحصائيات</h2>
-            
-            <div id="pin-protection" class="card">
-                <p data-i18n="enterPin">أدخل رمز PIN للوصول:</p>
-                <input type="password" id="pin-input" pattern="[0-9]*" inputmode="numeric">
-                <button id="unlock-analytics-btn" class="btn btn-primary" data-i18n="unlock">فتح</button>
+    <div id="app-content">
+        <header>
+            <h1 data-i18n="appTitle">إدارة أسطول EV</h1>
+            <div class="header-controls">
+                <button id="theme-toggle">🌙/☀️</button>
+                <button id="lang-toggle">EN</button>
             </div>
+        </header>
 
-            <div id="analytics-dashboard" class="hidden">
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3 data-i18n="totalRevenue">إجمالي الإيرادات</h3>
-                        <p id="stat-revenue">0.00 DA</p>
+        <main>
+            <section id="fleet-view" class="view active">
+                <h2 data-i18n="availableFleet">الأسطول المتاح</h2>
+                <div id="fleet-grid" class="grid"></div>
+            </section>
+
+            <section id="rental-view" class="view hidden">
+                <h2 data-i18n="activeSession">الجلسات الحالية</h2>
+                <div id="active-rental-card"></div>
+            </section>
+
+            <section id="logs-view" class="view hidden">
+                <h2 data-i18n="history">سجل التأجير</h2>
+                <button id="export-csv-btn" class="btn btn-secondary" data-i18n="exportCSV">تصدير CSV</button>
+                <ul id="logs-list" class="list"></ul>
+            </section>
+
+            <section id="analytics-view" class="view hidden">
+                <h2 data-i18n="analytics">الإحصائيات</h2>
+                <div id="pin-protection" class="card">
+                    <p data-i18n="enterPin">أدخل رمز PIN للوصول:</p>
+                    <input type="password" id="pin-input" pattern="[0-9]*" inputmode="numeric">
+                    <button id="unlock-analytics-btn" class="btn btn-primary" data-i18n="unlock">فتح</button>
+                </div>
+                <div id="analytics-dashboard" class="hidden">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3 data-i18n="totalRevenue">إجمالي الإيرادات</h3>
+                            <p id="stat-revenue">0.00 DA</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 data-i18n="mostUsed">الأكثر استخداماً</h3>
+                            <p id="stat-popular">-</p>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3 data-i18n="mostUsed">الأكثر استخداماً</h3>
-                        <p id="stat-popular">-</p>
+                    <div class="chart-container">
+                        <canvas id="revenueChart"></canvas>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="revenueChart"></canvas>
-                </div>
-            </div>
-        </section>
-    </main>
+            </section>
+        </main>
 
-    <nav class="bottom-nav">
-        <button class="nav-btn active" data-target="fleet-view" data-i18n="fleet">الأسطول</button>
-        <button class="nav-btn" data-target="rental-view" data-i18n="rental">التأجير</button>
-        <button class="nav-btn" data-target="logs-view" data-i18n="history">السجل</button>
-        <button class="nav-btn" data-target="analytics-view" data-i18n="analytics">إحصائيات</button>
-    </nav>
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-target="fleet-view" data-i18n="fleet">الأسطول</button>
+            <button class="nav-btn" data-target="rental-view" data-i18n="rental">التأجير</button>
+            <button class="nav-btn" data-target="logs-view" data-i18n="history">السجل</button>
+            <button class="nav-btn" data-target="analytics-view" data-i18n="analytics">إحصائيات</button>
+        </nav>
+    </div>
 
-    <div id="alert-modal" class="modal hidden">
+    <!-- نافذة إعداد التأجير -->
+    <div id="setup-modal" class="modal hidden">
         <div class="modal-content">
-            <h3 id="modal-title">تنبيه</h3>
-            <p id="modal-message">رسالة التنبيه</p>
-            <button id="modal-close" class="btn btn-primary" data-i18n="close">إغلاق</button>
+            <h3 id="setup-title">إعداد التأجير</h3>
+            <div class="input-group">
+                <label data-i18n="rentAmount">المبلغ (DA):</label>
+                <input type="number" id="setup-da" value="100" min="0">
+            </div>
+            <div class="input-group">
+                <label id="setup-unit-label" data-i18n="rentTime">الوقت (دقائق):</label>
+                <input type="number" id="setup-unit" value="5" min="0" step="any">
+            </div>
+            <button id="confirm-rent-btn" class="btn btn-primary" data-i18n="startRental">بدء التأجير</button>
+            <button onclick="closeModal('setup-modal')" class="btn btn-secondary" data-i18n="close">إلغاء</button>
         </div>
     </div>
 
+    <!-- نافذة عرض QR -->
+    <div id="qr-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 data-i18n="scanQr">امسح الكود للمتابعة</h3>
+            <div id="qr-container" style="display:flex; justify-content:center; margin: 20px 0; background:white; padding:10px; border-radius:10px;"></div>
+            <button onclick="closeModal('qr-modal')" class="btn btn-secondary" data-i18n="close">إغلاق</button>
+        </div>
+    </div>
+
+    <!-- مضاد الكاش القديم -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js').then(reg => {
+                reg.unregister();
+            });
+        }
+    </script>
     <script src="data.js"></script>
     <script src="storage.js"></script>
     <script src="analytics.js"></script>
     <script src="app.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js').then(() => {
-                console.log('Antidote Service Worker Registered');
-            });
-        }
-    </script>
-
 </body>
 </html>

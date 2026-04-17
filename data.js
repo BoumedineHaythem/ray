@@ -1,16 +1,14 @@
-// Initial Fleet Data
 const initialFleet = [
-    { id: 'v1', name: 'Scooter zarga', type: 'scooter', rate: 100, unit: 5, billingType: 'timer', img: 'images/scooter1.jpg', status: 'available' },
-    { id: 'v2', name: 'car safra ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car1.jpg', status: 'available' },
-    { id: 'v3', name: 'car chiniya ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/care_2.jpg', status: 'available' },
-    { id: 'v4', name: 'car zarga ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_3.jpg', status: 'available' },
-    { id: 'v5', name: 'car 7amra ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_4.jpg', status: 'available' },
-    { id: 'v6', name: 'car khadra ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/care_5.jpg', status: 'available' },
-    { id: 'v7', name: 'car bayda ', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_6.jpg', status: 'available' },
-    { id: 'v8', name: 'Scooter hamra ', type: 'scooter', rate: 100, unit: 5, billingType: 'timer', img: 'images/scotore2.jpg', status: 'available' }
+    { id: 'v1', name: 'Scooter zarga', type: 'scooter', rate: 100, unit: 5, billingType: 'timer', img: 'images/scooter1.jpg', status: 'available', color: '#007bff' },
+    { id: 'v2', name: 'car safra', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car1.jpg', status: 'available', color: '#ffc107' },
+    { id: 'v3', name: 'car chiniya', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/care_2.jpg', status: 'available', color: '#fd7e14' },
+    { id: 'v4', name: 'car zarga', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_3.jpg', status: 'available', color: '#007bff' },
+    { id: 'v5', name: 'car 7amra', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_4.jpg', status: 'available', color: '#dc3545' },
+    { id: 'v6', name: 'car khadra', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/care_5.jpg', status: 'available', color: '#28a745' },
+    { id: 'v7', name: 'car bayda', type: 'car', rate: 100, unit: 1, billingType: 'flat', img: 'images/car_6.jpg', status: 'available', color: '#f8f9fa' },
+    { id: 'v8', name: 'Scooter hamra', type: 'scooter', rate: 100, unit: 5, billingType: 'timer', img: 'images/scotore2.jpg', status: 'available', color: '#dc3545' }
 ];
 
-// i18n Dictionary
 const translations = {
     ar: {
         appTitle: "إدارة أسطول EV",
@@ -21,19 +19,22 @@ const translations = {
         fleet: "الأسطول",
         rental: "التأجير",
         rentNow: "تأجير الآن",
-        endSession: "إنهاء الجلسة",
+        endSession: "إنهاء",
         exportCSV: "تصدير CSV",
-        enterPin: "أدخل رمز PIN للوصول (الافتراضي: 1234):",
+        enterPin: "أدخل رقم PIN (الافتراضي: 1234):",
         unlock: "فتح",
         totalRevenue: "إجمالي الإيرادات",
         mostUsed: "الأكثر استخداماً",
-        offline: "أنت غير متصل بالإنترنت",
         close: "إغلاق",
         available: "متاح",
         busy: "مشغول",
-        duration: "المدة",
-        price: "السعر",
-        sessionEnded: "انتهت الجلسة وتم الدفع بنجاح. المبلغ:"
+        rentAmount: "المبلغ (DA):",
+        rentTime: "الوقت / جولات:",
+        startRental: "بدء التأجير",
+        scanQr: "امسح الكود لمتابعة الوقت",
+        timeRemaining: "الوقت المتبقي",
+        tour: "جولة",
+        min: "دقيقة"
     },
     en: {
         appTitle: "EV Fleet Manager",
@@ -44,18 +45,21 @@ const translations = {
         fleet: "Fleet",
         rental: "Rental",
         rentNow: "Rent Now",
-        endSession: "End Session",
+        endSession: "End",
         exportCSV: "Export CSV",
         enterPin: "Enter PIN (Default: 1234):",
         unlock: "Unlock",
         totalRevenue: "Total Revenue",
         mostUsed: "Most Used",
-        offline: "You are offline",
         close: "Close",
         available: "Available",
         busy: "Busy",
-        duration: "Duration",
-        price: "Price",
-        sessionEnded: "Session ended and invoiced successfully. Amount:"
+        rentAmount: "Amount (DA):",
+        rentTime: "Time / Tours:",
+        startRental: "Start Rental",
+        scanQr: "Scan to track time",
+        timeRemaining: "Time Remaining",
+        tour: "Tour",
+        min: "Min"
     }
 };
