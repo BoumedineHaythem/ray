@@ -154,7 +154,7 @@ async function renderFleet() {
     });
 }
 
-// --- Start Rental (Now supports multiples) ---
+// --- Start Rental ---
 async function startRental(vehicleId) {
     const fleet = await DB.getAll('fleet');
     const vehicle = fleet.find(v => v.id === vehicleId);
@@ -162,16 +162,16 @@ async function startRental(vehicleId) {
     vehicle.status = 'busy';
     await DB.saveRecord('fleet', vehicle);
 
-    // Get existing sessions or start new array
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     
     const newSession = {
         vehicleId: vehicle.id,
         vehicleName: vehicle.name,
-        rate: vehicle.rate,
-        unit: vehicle.unit,
+        price: vehicle.price,
         billingType: vehicle.billingType,
-        startTime: Date.now()
+        startTime: Date.now(),
+        // For scooters, we set an expiry time 5 mins from now
+        expiresAt: vehicle.billingType === 'timer' ? Date.now() + (vehicle.durationLimit * 60000) : null
     };
     
     sessions.push(newSession);
@@ -179,6 +179,9 @@ async function startRental(vehicleId) {
     
     renderFleet();
     checkActiveSessions();
+    
+    // Switch to Rental View
+    document.querySelector('.nav-btn[data-target="rental-view"]').click();
 }
 function calculateCurrentPrice(session) {
     const elapsedMs = Date.now() - session.startTime;
@@ -194,57 +197,77 @@ function calculateCurrentPrice(session) {
 }
 
 // --- UI Timer for Multiple Cards ---
+// --- Multi-Session Monitor ---
 function checkActiveSessions() {
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     const container = document.getElementById('active-rental-card');
-    container.innerHTML = ''; // Clear previous
-
+    
     if (sessions.length > 0) {
         if (activeTimer) clearInterval(activeTimer);
         
         activeTimer = setInterval(() => {
-            const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
-            container.innerHTML = ''; // Refresh the list each second
-            
-            sessions.forEach((s, index) => {
-                const price = calculateCurrentPrice(s);
-                const elapsed = Math.floor((Date.now() - s.startTime) / 1000);
-                const m = Math.floor(elapsed / 60);
-                const s_rem = elapsed % 60;
+            const currentSessions = JSON.parse(UIState.get('activeSessions') || '[]');
+            container.innerHTML = ''; 
+
+            currentSessions.forEach((s, index) => {
+                let timeDisplay = "";
+                let statusClass = "";
+
+                if (s.billingType === 'timer') {
+                    // SCOOTER: Countdown from 5:00
+                    const remainingMs = s.expiresAt - Date.now();
+                    if (remainingMs <= 0) {
+                        timeDisplay = "00:00 - TIME UP!";
+                        statusClass = "text-danger pulse"; // Visual alert
+                        if (remainingMs > -1000) navigator.vibrate([500, 100, 500]); // Vibrate once when hits 0
+                    } else {
+                        const m = Math.floor(remainingMs / 60000);
+                        const sec = Math.floor((remainingMs % 60000) / 1000);
+                        timeDisplay = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+                    }
+                } else {
+                    // CAR: Simple Tour display
+                    timeDisplay = "One Tour / جولة واحدة";
+                }
 
                 const card = document.createElement('div');
-                card.className = 'card active-session-item';
-                card.style.marginBottom = "10px";
+                card.className = `card active-session-item ${statusClass}`;
+                card.style.borderLeft = s.billingType === 'timer' ? "5px solid #ff4d4d" : "5px solid #28a745";
+                
                 card.innerHTML = `
-                    <h4>${s.vehicleName}</h4>
-                    <p>⏱️ ${String(m).padStart(2, '0')}:${String(s_rem).padStart(2, '0')}</p>
-                    <p><strong>${price} DA</strong></p>
-                    <button class="btn btn-danger" onclick="endRental(${index})">إنهاء (End)</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="text-align:right;">
+                            <strong>${s.vehicleName}</strong>
+                            <p style="font-size: 1.5rem; margin: 5px 0;">${timeDisplay}</p>
+                            <p>السعر: ${s.price} DA</p>
+                        </div>
+                        <button class="btn btn-danger" style="width:auto; padding: 10px 20px;" onclick="endRental(${index})">إنهاء</button>
+                    </div>
                 `;
                 container.appendChild(card);
             });
         }, 1000);
     } else {
-        container.innerHTML = `<p>لا يوجد جلسات نشطة (No active sessions)</p>`;
+        container.innerHTML = `<p style="padding:20px; color:var(--text-secondary);">لا توجد جلسات نشطة حالياً</p>`;
         if (activeTimer) clearInterval(activeTimer);
     }
 }
 
-// --- End Specific Rental ---
+// --- End Rental ---
 async function endRental(index) {
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     const session = sessions[index];
-    
-    const finalPrice = calculateCurrentPrice(session);
-    
-    // Save to Permanent Logs (IndexedDB)
+
+    // Save to History (IndexedDB)
     await DB.saveRecord('sessions', {
-        ...session,
+        vehicleName: session.vehicleName,
+        vehicleId: session.vehicleId,
+        startTime: session.startTime,
         endTime: Date.now(),
-        price: finalPrice
+        price: session.price // 100 DA
     });
 
-    // Mark vehicle as available
+    // Make vehicle available again
     const fleet = await DB.getAll('fleet');
     const vehicle = fleet.find(v => v.id === session.vehicleId);
     if (vehicle) {
@@ -252,7 +275,7 @@ async function endRental(index) {
         await DB.saveRecord('fleet', vehicle);
     }
 
-    // Remove only this session from active list
+    // Remove from active list
     sessions.splice(index, 1);
     UIState.set('activeSessions', JSON.stringify(sessions));
     

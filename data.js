@@ -2,17 +2,17 @@
 const initialFleet = [
     { 
         id: 'v1', 
-        name: 'Scooter zarga #1702ff', 
+        name: 'Scooter zarga', 
         type: 'scooter', 
         rate: 100, 
-        unit: 10, // 10 minutes
-        billingType: 'interval', 
+        unit: 5, // 10 minutes
+        billingType: 'timer', 
         img: 'images/scooter1.jpg', 
         status: 'available' 
     },
     { 
         id: 'v2', 
-        name: 'car safra #f7ff01', 
+        name: 'car safra ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
@@ -22,18 +22,18 @@ const initialFleet = [
     },
     { 
         id: 'v3', 
-        name: 'car chiniya #ff9e01', 
+        name: 'car chiniya ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
         billingType: 'flat', 
-        img: 'images/car_2.jpg', 
+        img: 'images/care_2.jpg', 
         status: 'available' 
     }
     ,
     { 
         id: 'v4', 
-        name: 'car zarga #2301ff', 
+        name: 'car zarga ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
@@ -44,7 +44,7 @@ const initialFleet = [
     ,
     { 
         id: 'v5', 
-        name: 'car 7amra #ff0101', 
+        name: 'car 7amra ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
@@ -55,7 +55,7 @@ const initialFleet = [
     ,
     { 
         id: 'v6', 
-        name: 'car khadra #047f00', 
+        name: 'car khadra ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
@@ -66,7 +66,7 @@ const initialFleet = [
     ,
     { 
         id: 'v7', 
-        name: 'car bayda #f2f2f2', 
+        name: 'car bayda ', 
         type: 'car', 
         rate: 100, 
         unit: 1, // 1 tour
@@ -76,11 +76,11 @@ const initialFleet = [
     },
         { 
         id: 'v8', 
-        name: 'Scooter hamra #ff0602', 
+        name: 'Scooter hamra ', 
         type: 'scooter', 
         rate: 100, 
-        unit: 10, // 10 minutes
-        billingType: 'interval', 
+        unit: 5, // 10 minutes
+        billingType: 'timer', 
         img: 'images/scotore2.jpg', 
         status: 'available' 
     }
