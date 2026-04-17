@@ -44,7 +44,6 @@ const DB = {
     }
 };
 
-// LocalStorage helpers for quick state
 const UIState = {
     get: (key) => localStorage.getItem(key),
     set: (key, value) => localStorage.setItem(key, value),

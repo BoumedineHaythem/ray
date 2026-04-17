@@ -4,26 +4,14 @@ const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f9
 
 // --- Init Application ---
 document.addEventListener('DOMContentLoaded', async () => {
-    initPWA();
     await initFleetDB();
     setupEventListeners();
     applyTheme(UIState.get('theme') || 'dark');
     setLanguage(UIState.get('lang') || 'ar');
     renderFleet();
-    checkActiveSession();
+    checkActiveSessions();
     updateOnlineStatus();
 });
-
-// --- PWA & Service Worker ---
-function initPWA() {
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('service-worker.js')
-                .then(reg => console.log('SW registered!', reg))
-                .catch(err => console.error('SW failed', err));
-        });
-    }
-}
 
 // --- Data & State Setup ---
 async function initFleetDB() {
@@ -62,9 +50,6 @@ function setupEventListeners() {
         currentLang = currentLang === 'ar' ? 'en' : 'ar';
         setLanguage(currentLang);
     });
-
-    // Rental Actions
-    document.getElementById('end-rental-btn').addEventListener('click', endRental);
 
     // Analytics PIN
     document.getElementById('unlock-analytics-btn').addEventListener('click', async () => {
@@ -115,6 +100,7 @@ function setLanguage(lang) {
     });
     UIState.set('lang', lang);
     renderFleet(); // re-render to translate statuses
+    checkActiveSessions();
 }
 
 function updateOnlineStatus() {
@@ -142,11 +128,12 @@ async function renderFleet() {
         const t = translations[currentLang];
         const statusText = v.status === 'available' ? t.available : t.busy;
         const statusClass = v.status === 'available' ? 'status-available' : 'status-busy';
+        const priceText = v.billingType === 'timer' ? `${v.rate} DA / ${v.unit} min` : `${v.rate} DA / Tour`;
         
         card.innerHTML = `
             <img src="${v.img}" alt="${v.name}" loading="lazy">
             <h3>${v.name}</h3>
-            <p>$${v.pricePerMin} / min</p>
+            <p>${priceText}</p>
             <span class="status-badge ${statusClass}">${statusText}</span>
             ${v.status === 'available' ? `<button class="btn btn-primary" onclick="startRental('${v.id}')">${t.rentNow}</button>` : ''}
         `;
@@ -167,11 +154,10 @@ async function startRental(vehicleId) {
     const newSession = {
         vehicleId: vehicle.id,
         vehicleName: vehicle.name,
-        price: vehicle.price,
+        rate: vehicle.rate,
+        unit: vehicle.unit,
         billingType: vehicle.billingType,
-        startTime: Date.now(),
-        // For scooters, we set an expiry time 5 mins from now
-        expiresAt: vehicle.billingType === 'timer' ? Date.now() + (vehicle.durationLimit * 60000) : null
+        startTime: Date.now()
     };
     
     sessions.push(newSession);
@@ -183,20 +169,18 @@ async function startRental(vehicleId) {
     // Switch to Rental View
     document.querySelector('.nav-btn[data-target="rental-view"]').click();
 }
-function calculateCurrentPrice(session) {
-    const elapsedMs = Date.now() - session.startTime;
-    const elapsedMins = elapsedMs / 60000;
 
+function calculateCurrentPrice(session) {
     if (session.billingType === 'flat') {
-        return session.rate; // 100 DA per tour (fixed)
+        return session.rate;
     } else {
-        // 100 DA per 10 min (rounded up to nearest 10 min block)
+        const elapsedMs = Date.now() - session.startTime;
+        const elapsedMins = Math.max(0, elapsedMs / 60000);
         const blocks = Math.ceil(elapsedMins / session.unit);
-        return blocks * session.rate;
+        return (blocks === 0 ? 1 : blocks) * session.rate;
     }
 }
 
-// --- UI Timer for Multiple Cards ---
 // --- Multi-Session Monitor ---
 function checkActiveSessions() {
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
@@ -211,44 +195,40 @@ function checkActiveSessions() {
 
             currentSessions.forEach((s, index) => {
                 let timeDisplay = "";
-                let statusClass = "";
+                const currentPrice = calculateCurrentPrice(s);
 
                 if (s.billingType === 'timer') {
-                    // SCOOTER: Countdown from 5:00
-                    const remainingMs = s.expiresAt - Date.now();
-                    if (remainingMs <= 0) {
-                        timeDisplay = "00:00 - TIME UP!";
-                        statusClass = "text-danger pulse"; // Visual alert
-                        if (remainingMs > -1000) navigator.vibrate([500, 100, 500]); // Vibrate once when hits 0
-                    } else {
-                        const m = Math.floor(remainingMs / 60000);
-                        const sec = Math.floor((remainingMs % 60000) / 1000);
-                        timeDisplay = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-                    }
+                    // Count up timer
+                    const elapsedMs = Date.now() - s.startTime;
+                    const m = Math.floor(elapsedMs / 60000);
+                    const sec = Math.floor((elapsedMs % 60000) / 1000);
+                    timeDisplay = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
                 } else {
-                    // CAR: Simple Tour display
-                    timeDisplay = "One Tour / جولة واحدة";
+                    timeDisplay = currentLang === 'ar' ? "جولة واحدة" : "One Tour";
                 }
 
                 const card = document.createElement('div');
-                card.className = `card active-session-item ${statusClass}`;
-                card.style.borderLeft = s.billingType === 'timer' ? "5px solid #ff4d4d" : "5px solid #28a745";
+                card.className = `card`;
+                card.style.borderInlineStart = s.billingType === 'timer' ? "5px solid var(--accent)" : "5px solid var(--success)";
+                card.style.marginBottom = "12px";
                 
                 card.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div style="text-align:right;">
+                        <div style="text-align: ${currentLang === 'ar' ? 'right' : 'left'};">
                             <strong>${s.vehicleName}</strong>
-                            <p style="font-size: 1.5rem; margin: 5px 0;">${timeDisplay}</p>
-                            <p>السعر: ${s.price} DA</p>
+                            <p style="font-size: 1.5rem; margin: 5px 0;" dir="ltr">${timeDisplay}</p>
+                            <p>${currentLang === 'ar' ? 'السعر' : 'Price'}: <strong>${currentPrice} DA</strong></p>
                         </div>
-                        <button class="btn btn-danger" style="width:auto; padding: 10px 20px;" onclick="endRental(${index})">إنهاء</button>
+                        <button class="btn btn-danger" style="width:auto; padding: 10px 20px; margin: 0;" onclick="endRental(${index})">
+                            ${currentLang === 'ar' ? 'إنهاء' : 'End'}
+                        </button>
                     </div>
                 `;
                 container.appendChild(card);
             });
         }, 1000);
     } else {
-        container.innerHTML = `<p style="padding:20px; color:var(--text-secondary);">لا توجد جلسات نشطة حالياً</p>`;
+        container.innerHTML = `<p style="padding:20px; color:var(--text-secondary); text-align:center;">${currentLang === 'ar' ? 'لا توجد جلسات نشطة حالياً' : 'No active sessions'}</p>`;
         if (activeTimer) clearInterval(activeTimer);
     }
 }
@@ -257,6 +237,9 @@ function checkActiveSessions() {
 async function endRental(index) {
     const sessions = JSON.parse(UIState.get('activeSessions') || '[]');
     const session = sessions[index];
+    
+    const finalPrice = calculateCurrentPrice(session);
+    const durationMins = (Date.now() - session.startTime) / 60000;
 
     // Save to History (IndexedDB)
     await DB.saveRecord('sessions', {
@@ -264,7 +247,8 @@ async function endRental(index) {
         vehicleId: session.vehicleId,
         startTime: session.startTime,
         endTime: Date.now(),
-        price: session.price // 100 DA
+        durationMins: durationMins,
+        price: finalPrice
     });
 
     // Make vehicle available again
@@ -281,6 +265,8 @@ async function endRental(index) {
     
     renderFleet();
     checkActiveSessions();
+    
+    showAlert(translations[currentLang].rental, translations[currentLang].sessionEnded + ` ${finalPrice} DA`);
 }
 
 async function renderLogs() {
@@ -297,9 +283,9 @@ async function renderLogs() {
                 <strong>${session.vehicleName}</strong><br>
                 <small>${date}</small>
             </div>
-            <div style="text-align: end;">
-                $${session.price.toFixed(2)}<br>
-                <small>${Math.ceil(session.durationMins)} min</small>
+            <div style="text-align: ${currentLang === 'ar' ? 'left' : 'right'};">
+                <strong>${session.price.toFixed(2)} DA</strong><br>
+                <small>${Math.ceil(session.durationMins || 0)} min</small>
             </div>
         `;
         list.appendChild(li);
@@ -318,9 +304,9 @@ async function exportCSV() {
     const sessions = await DB.getAll('sessions');
     if (sessions.length === 0) return showAlert('Export', 'No data available');
 
-    let csv = 'ID,Vehicle,Start,End,Duration(min),Revenue($)\n';
-    sessions.forEach(s => {
-        csv += `${s.id},${s.vehicleName},${new Date(s.startTime).toISOString()},${new Date(s.endTime).toISOString()},${s.durationMins.toFixed(2)},${s.price.toFixed(2)}\n`;
+    let csv = 'ID,Vehicle,Start,End,Duration(min),Revenue(DA)\n';
+    sessions.forEach((s, idx) => {
+        csv += `${idx + 1},${s.vehicleName},${new Date(s.startTime).toISOString()},${new Date(s.endTime).toISOString()},${(s.durationMins||0).toFixed(2)},${s.price.toFixed(2)}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });

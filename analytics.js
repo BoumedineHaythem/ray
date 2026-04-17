@@ -20,7 +20,7 @@ async function renderAnalytics() {
     });
 
     // Update stats UI
-    document.getElementById('stat-revenue').textContent = `$${totalRevenue.toFixed(2)}`;
+    document.getElementById('stat-revenue').textContent = `${totalRevenue.toFixed(2)} DA`;
     
     // Find most popular
     const popularId = Object.keys(vehicleCounts).reduce((a, b) => vehicleCounts[a] > vehicleCounts[b] ? a : b, null);
@@ -44,7 +44,7 @@ async function renderAnalytics() {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Daily Revenue ($)',
+                label: 'Daily Revenue (DA)',
                 data: data,
                 borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
                 backgroundColor: 'rgba(0, 123, 255, 0.1)',

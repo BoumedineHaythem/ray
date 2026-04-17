@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title data-i18n="appTitle">إدارة تأجير المركبات الكهربائية</title>
+    <title data-i18n="appTitle">إدارة أسطول EV</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -27,10 +26,8 @@
         </section>
 
         <section id="rental-view" class="view hidden">
-            <h2 data-i18n="activeSession">الجلسة الحالية</h2>
-            <div id="active-rental-card" class="card">
-                </div>
-            <button id="end-rental-btn" class="btn btn-danger" data-i18n="endSession">إنهاء الجلسة</button>
+            <h2 data-i18n="activeSession">الجلسات الحالية</h2>
+            <div id="active-rental-card"></div>
         </section>
 
         <section id="logs-view" class="view hidden">
@@ -52,7 +49,7 @@
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3 data-i18n="totalRevenue">إجمالي الإيرادات</h3>
-                        <p id="stat-revenue">0.00</p>
+                        <p id="stat-revenue">0.00 DA</p>
                     </div>
                     <div class="stat-card">
                         <h3 data-i18n="mostUsed">الأكثر استخداماً</h3>
