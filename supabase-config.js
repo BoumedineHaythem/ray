@@ -10,7 +10,7 @@
 // ============================================
 
 const SUPABASE_URL      = 'https://omxrqlmeovvnipktpayb.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_n4IxibvfhPsy8b-OMDkZFQ_nY0fTzAg';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teHJxbG1lb3Z2bmlwa3RwYXliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NzU4NzIsImV4cCI6MjA5MjE1MTg3Mn0.N7E7vQ0hpcGDoHrA8Bim8yrUDXFIrJPc65_PYMaxRPY';
 
 // Auto-detected: false = offline mode (localStorage only)
 const USE_SUPABASE = !SUPABASE_URL.includes('YOUR_PROJECT_ID')
