@@ -1,7 +1,15 @@
 let revenueChartInstance = null;
 
 async function renderAnalytics() {
-    const sessions = await DB.getAll('sessions');
+    const sessions = await SessionStore.getCompleted();
+
+    if (sessions.length === 0) {
+        document.getElementById('stat-revenue').textContent  = '0.00 DA';
+        document.getElementById('stat-sessions').textContent = '0';
+        document.getElementById('stat-avg').textContent      = '0 DA';
+        document.getElementById('stat-popular').textContent  = '-';
+        return;
+    }
 
     let totalRevenue = 0;
     const vehicleCounts = {};
@@ -16,7 +24,7 @@ async function renderAnalytics() {
 
     document.getElementById('stat-revenue').textContent  = `${totalRevenue.toFixed(2)} DA`;
     document.getElementById('stat-sessions').textContent = sessions.length;
-    const avg = sessions.length ? (totalRevenue / sessions.length) : 0;
+    const avg = totalRevenue / sessions.length;
     document.getElementById('stat-avg').textContent = `${avg.toFixed(0)} DA`;
 
     // Most popular vehicle
@@ -25,10 +33,11 @@ async function renderAnalytics() {
     if (popularId) {
         const fleet      = await DB.getAll('fleet');
         const popVehicle = fleet.find(v => v.id === popularId);
-        document.getElementById('stat-popular').textContent = popVehicle ? popVehicle.name : popularId;
+        document.getElementById('stat-popular').textContent =
+            popVehicle ? popVehicle.name : popularId;
     }
 
-    // Chart
+    // Revenue chart
     const ctx    = document.getElementById('revenueChart').getContext('2d');
     const labels = Object.keys(revenueByDay).sort();
     const data   = labels.map(d => revenueByDay[d]);
@@ -72,11 +81,11 @@ async function renderAnalytics() {
             scales: {
                 y: {
                     beginAtZero: true,
-                    grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+                    grid:  { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
                     ticks: { color: textColor, callback: v => v + ' DA' }
                 },
                 x: {
-                    grid: { display: false },
+                    grid:  { display: false },
                     ticks: { color: textColor, maxTicksLimit: 7 }
                 }
             }
