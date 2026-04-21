@@ -144,7 +144,7 @@ async function initStaticClientMode(vehicleId) {
         }
 
         // New session started (or first load)
-        const isNew = !session || session.supabaseId !== s.supabaseId || session.expiresAt !== s.expiresAt || session.totalMs !== s.totalMs;
+        const isNew = !session || session.supabaseId !== s.supabaseId;
         if (isNew) {
             session = s;
             alerts  = {};
@@ -153,9 +153,8 @@ async function initStaticClientMode(vehicleId) {
             totalEl.textContent    = formatMs(s.totalMs);
             alertBox.classList.add('hidden');
 
-        if (!countdownTimer) {
+            if (countdownTimer) clearInterval(countdownTimer);
             countdownTimer = setInterval(tick, 500);
-}
             tick();
         }
     }
