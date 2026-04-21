@@ -2,9 +2,11 @@
 //  EV Fleet Manager — app.js v3
 //  Static QR per vehicle · Supabase backend
 // ============================================
-
+let currentSessions = [];
+let lastRenderedSig = '';
 let currentLang            = 'ar';
 let activeTimer            = null;
+let supabasePollInterval   = null;
 let selectedVehicleForRent = null;
 let clientPollInterval     = null;
 
@@ -573,154 +575,188 @@ function showGraceQR(session) {
 }
 
 // ── Active Sessions Display ────────────────
+// ── Active Sessions Display (Fixed No-Blink Version) ────────────────
 async function checkActiveSessions() {
-    const container = document.getElementById('active-rental-card');
     if (activeTimer) { clearInterval(activeTimer); activeTimer = null; }
+    if (supabasePollInterval) { clearInterval(supabasePollInterval); supabasePollInterval = null; }
 
-    let sessions = await SessionStore.getActive();
+    currentSessions = await SessionStore.getActive();
 
-    const render = async () => {
-        // Merge alert state from localStorage into sessions
-        const local = JSON.parse(UIState.get('activeSessions') || '[]');
-        sessions.forEach(s => {
-            const li = local.find(l => l.vehicleId === s.vehicleId);
-            if (li) s.alerts = li.alerts || {};
-        });
+    // Rebuild HTML ONLY if a session is added or removed
+    const currentSig = currentSessions.map(s => s.vehicleId).join('|');
+    if (currentSig !== lastRenderedSig) {
+        buildCardsDOM(currentSessions);
+        lastRenderedSig = currentSig;
+    }
 
-        updateNavBadge(sessions.length);
+    // Merge local alerts
+    const local = JSON.parse(UIState.get('activeSessions') || '[]');
+    currentSessions.forEach(s => {
+        const li = local.find(l => l.vehicleId === s.vehicleId);
+        if (li) s.alerts = li.alerts || {};
+    });
 
-        if (sessions.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <span class="empty-icon">🏁</span>
-                    <h3>${translations[currentLang].activeSession}</h3>
-                    <p>${currentLang === 'ar' ? 'لا توجد جلسات نشطة حالياً' : 'No active sessions'}</p>
-                </div>`;
-            return;
-        }
+    updateNavBadge(currentSessions.length);
+    updateTimerTick(); // immediate update
+    
+    activeTimer = setInterval(updateTimerTick, 500); // 0.5s updates
 
-        container.innerHTML = '';
-        let needsAlertSave  = false;
-        const circumference = 2 * Math.PI * 35;
-
-        sessions.forEach((s, idx) => {
-            let timeDisplay = '';
-            let timerClass  = '';
-            let alertBanner = '';
-            let ringOffset  = 0;
-            let progressPct = 0;
-            let cardClass   = 'session-card';
-            let elapsedText = '';
-
-            if (s.billingType === 'timer') {
-                const now           = Date.now();
-                const remainingMs   = s.expiresAt - now;
-                const elapsedMs     = now - s.startTime;
-                const remainingSecs = Math.floor(remainingMs / 1000);
-                const inGrace       = s.graceUntil && now < s.graceUntil;
-                elapsedText = formatMs(elapsedMs);
-
-                if (inGrace) {
-                    const graceLeft = Math.ceil((s.graceUntil - now) / 1000);
-                    timeDisplay = formatMs(s.totalMs);
-                    progressPct = 1; ringOffset = 0;
-                    alertBanner = `<div class="alert-banner" style="border-color:var(--accent);color:var(--accent);background:var(--accent-glow);">
-                        📷 ${currentLang === 'ar' ? 'امسح QR — العداد يبدأ في' : 'Scan QR — timer starts in'} <strong>${graceLeft}s</strong>
-                    </div>`;
-                } else if (remainingMs <= 0) {
-                    timeDisplay = '00:00'; timerClass = 'danger'; cardClass = 'session-card expired';
-                    progressPct = 0; ringOffset = circumference;
-                    alertBanner = `<div class="alert-banner">⛔ ${currentLang === 'ar' ? 'انتهى الوقت!' : 'Time Expired!'}</div>`;
-                    if (!s.alerts['0']) { s.alerts['0'] = true; needsAlertSave = true; playAlert('expired'); }
-                } else {
-                    timeDisplay = formatMs(remainingMs);
-                    progressPct = remainingMs / s.totalMs;
-                    ringOffset  = circumference * (1 - progressPct);
-
-                    if (remainingSecs <= 10) {
-                        timerClass = 'danger'; cardClass = 'session-card expired';
-                        alertBanner = `<div class="alert-banner">🚨 ${currentLang === 'ar' ? 'تبقى 10 ثوانٍ!' : '10 seconds left!'}</div>`;
-                        if (!s.alerts['10']) { s.alerts['10'] = true; needsAlertSave = true; playAlert('warning10'); }
-                    } else if (remainingSecs <= 30) {
-                        timerClass = 'danger'; cardClass = 'session-card warning';
-                        alertBanner = `<div class="alert-banner">⏰ ${currentLang === 'ar' ? 'تبقى 30 ثانية!' : '30 seconds left!'}</div>`;
-                        if (!s.alerts['30']) { s.alerts['30'] = true; needsAlertSave = true; playAlert('warning30'); }
-                    } else if (remainingSecs <= 60) {
-                        timerClass = 'warning'; cardClass = 'session-card warning';
-                        alertBanner = `<div class="alert-banner" style="border-color:var(--warning);color:var(--warning);background:rgba(245,158,11,0.1);">⚡ ${currentLang === 'ar' ? 'دقيقة أخيرة!' : 'Last minute!'}</div>`;
-                        if (!s.alerts['60']) { s.alerts['60'] = true; needsAlertSave = true; playAlert('warning60'); }
-                    }
-                }
-            } else {
-                timeDisplay = `${s.units} ${translations[currentLang].tour}`;
-                progressPct = 0.7; ringOffset = circumference * 0.3;
-                elapsedText = formatMs(Date.now() - s.startTime);
-            }
-
-            const qrBtn = s.billingType === 'timer'
-                ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="showVehicleQR('${s.vehicleId}', '${s.vehicleName}')">📱 QR</button>`
-                : '';
-
-            const extendBtn = s.billingType === 'timer'
-                ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openExtendModal(${idx})">+⏱</button>`
-                : '';
-
-            const fillClass = ['danger', 'warning'].includes(timerClass) ? 'danger-fill' : '';
-            const barWidth  = s.billingType === 'timer'
-                ? `${Math.max(0, progressPct * 100).toFixed(1)}%` : '70%';
-
-            const card = document.createElement('div');
-            card.className = cardClass;
-            card.style.borderInlineStartColor = s.color || 'var(--accent)';
-
-            card.innerHTML = `
-                ${alertBanner}
-                <div class="session-card-header">
-                    <div>
-                        <div class="session-vehicle-name">${s.vehicleType === 'scooter' ? '🛵' : '🚗'} ${s.vehicleName}</div>
-                        <div class="elapsed-text">${currentLang === 'ar' ? 'منذ' : 'since'} ${elapsedText}</div>
-                    </div>
-                    <div class="session-price-badge">${s.price} DA</div>
-                </div>
-                <div class="timer-container">
-                    <div class="timer-ring">
-                        <svg viewBox="0 0 80 80">
-                            <circle class="ring-bg" cx="40" cy="40" r="35"/>
-                            <circle class="ring-progress" cx="40" cy="40" r="35"
-                                style="stroke-dasharray:${circumference};stroke-dashoffset:${ringOffset};stroke:${timerClass==='danger'?'var(--danger)':timerClass==='warning'?'var(--warning)':'var(--accent)'}"/>
-                        </svg>
-                        <div class="ring-text">${s.billingType === 'timer' ? Math.max(0, Math.ceil((s.expiresAt - Date.now()) / 60000)) + 'm' : '🔁'}</div>
-                    </div>
-                    <div class="timer-info">
-                        <div class="timer-display ${timerClass}" dir="ltr">${timeDisplay}</div>
-                        <div class="timer-label">${currentLang === 'ar' ? 'الوقت المتبقي' : 'Time Remaining'}</div>
-                        <div class="progress-bar-wrap">
-                            <div class="progress-bar-fill ${fillClass}" style="width:${barWidth}"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="session-actions">
-                    ${qrBtn}
-                    ${extendBtn}
-                    <button class="btn btn-danger btn-sm btn-icon" style="flex:1" onclick="endRental(${idx})">
-                        🏁 ${translations[currentLang].endSession}
-                    </button>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-
-        if (needsAlertSave) SessionStore.saveLocalAlerts(sessions);
-    };
-
-    render();
-    activeTimer = setInterval(render, 500);
-    // Re-fetch from Supabase every 15s (pick up any external changes)
     if (USE_SUPABASE) {
-        setInterval(async () => {
-            sessions = await SessionStore.getActive();
+        supabasePollInterval = setInterval(async () => {
+            const updatedSessions = await SessionStore.getActive();
+            const updatedSig = updatedSessions.map(s => s.vehicleId).join('|');
+            if(updatedSig !== lastRenderedSig) checkActiveSessions(); 
+            else {
+                updatedSessions.forEach(us => {
+                    const existing = currentSessions.find(cs => cs.vehicleId === us.vehicleId);
+                    if (existing) { existing.expiresAt = us.expiresAt; existing.totalMs = us.totalMs; }
+                });
+            }
         }, 15000);
     }
+}
+
+// Builds the HTML framework exactly ONCE
+function buildCardsDOM(sessions) {
+    const container = document.getElementById('active-rental-card');
+    container.innerHTML = ''; 
+
+    if (sessions.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">🏁</span>
+                <h3>${translations[currentLang].activeSession}</h3>
+                <p>${currentLang === 'ar' ? 'لا توجد جلسات نشطة حالياً' : 'No active sessions'}</p>
+            </div>`;
+        return;
+    }
+
+    sessions.forEach((s) => {
+        const qrBtn = s.billingType === 'timer'
+            ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="showVehicleQR('${s.vehicleId}', '${s.vehicleName}')">📱 QR</button>` : '';
+
+        const extendBtn = s.billingType === 'timer'
+            ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openExtendModal('${s.vehicleId}')">+⏱</button>` : '';
+
+        const card = document.createElement('div');
+        card.className = 'session-card';
+        card.id = `session-card-${s.vehicleId}`;
+        card.style.borderInlineStartColor = s.color || 'var(--accent)';
+        const circumference = 2 * Math.PI * 35;
+
+        card.innerHTML = `
+            <div id="alert-banner-${s.vehicleId}"></div>
+            <div class="session-card-header">
+                <div>
+                    <div class="session-vehicle-name">${s.vehicleType === 'scooter' ? '🛵' : '🚗'} ${s.vehicleName}</div>
+                    <div class="elapsed-text" id="elapsed-${s.vehicleId}"></div>
+                </div>
+                <div class="session-price-badge">${s.price} DA</div>
+            </div>
+            <div class="timer-container">
+                <div class="timer-ring">
+                    <svg viewBox="0 0 80 80">
+                        <circle class="ring-bg" cx="40" cy="40" r="35"/>
+                        <circle class="ring-progress" id="ring-${s.vehicleId}" cx="40" cy="40" r="35" style="stroke-dasharray:${circumference};"/>
+                    </svg>
+                    <div class="ring-text" id="ring-text-${s.vehicleId}"></div>
+                </div>
+                <div class="timer-info">
+                    <div class="timer-display" id="timer-display-${s.vehicleId}" dir="ltr"></div>
+                    <div class="timer-label">${currentLang === 'ar' ? 'الوقت المتبقي' : 'Time Remaining'}</div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar-fill" id="progress-bar-${s.vehicleId}"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="session-actions">
+                ${qrBtn}
+                ${extendBtn}
+                <button class="btn btn-danger btn-sm btn-icon" style="flex:1" onclick="endRental('${s.vehicleId}')">
+                    🏁 ${translations[currentLang].endSession}
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// Updates ONLY the text and progress bar smoothly every 0.5s
+function updateTimerTick() {
+    const circumference = 2 * Math.PI * 35;
+    let needsAlertSave = false;
+
+    currentSessions.forEach(s => {
+        const cardEl = document.getElementById(`session-card-${s.vehicleId}`);
+        if (!cardEl) return; 
+
+        let timeDisplay = '', timerClass = '', alertHtml = '', ringOffset = 0, progressPct = 0, cardClass = 'session-card', elapsedText = '';
+
+        if (s.billingType === 'timer') {
+            const now = Date.now(), remainingMs = s.expiresAt - now, elapsedMs = now - s.startTime;
+            const remainingSecs = Math.floor(remainingMs / 1000), inGrace = s.graceUntil && now < s.graceUntil;
+            elapsedText = formatMs(elapsedMs);
+
+            if (inGrace) {
+                const graceLeft = Math.ceil((s.graceUntil - now) / 1000);
+                timeDisplay = formatMs(s.totalMs);
+                progressPct = 1; ringOffset = 0;
+                alertHtml = `<div class="alert-banner" style="border-color:var(--accent);color:var(--accent);background:var(--accent-glow);">
+                    📷 ${currentLang === 'ar' ? 'امسح QR — العداد يبدأ في' : 'Scan QR — timer starts in'} <strong>${graceLeft}s</strong>
+                </div>`;
+            } else if (remainingMs <= 0) {
+                timeDisplay = '00:00'; timerClass = 'danger'; cardClass = 'session-card expired';
+                progressPct = 0; ringOffset = circumference;
+                alertHtml = `<div class="alert-banner">⛔ ${currentLang === 'ar' ? 'انتهى الوقت!' : 'Time Expired!'}</div>`;
+                if (!s.alerts['0']) { s.alerts['0'] = true; needsAlertSave = true; playAlert('expired'); }
+            } else {
+                timeDisplay = formatMs(remainingMs);
+                progressPct = remainingMs / s.totalMs;
+                ringOffset  = circumference * (1 - progressPct);
+
+                if (remainingSecs <= 10) {
+                    timerClass = 'danger'; cardClass = 'session-card expired';
+                    alertHtml = `<div class="alert-banner">🚨 ${currentLang === 'ar' ? 'تبقى 10 ثوانٍ!' : '10 seconds left!'}</div>`;
+                    if (!s.alerts['10']) { s.alerts['10'] = true; needsAlertSave = true; playAlert('warning10'); }
+                } else if (remainingSecs <= 30) {
+                    timerClass = 'danger'; cardClass = 'session-card warning';
+                    alertHtml = `<div class="alert-banner">⏰ ${currentLang === 'ar' ? 'تبقى 30 ثانية!' : '30 seconds left!'}</div>`;
+                    if (!s.alerts['30']) { s.alerts['30'] = true; needsAlertSave = true; playAlert('warning30'); }
+                } else if (remainingSecs <= 60) {
+                    timerClass = 'warning'; cardClass = 'session-card warning';
+                    alertHtml = `<div class="alert-banner" style="border-color:var(--warning);color:var(--warning);background:rgba(245,158,11,0.1);">⚡ ${currentLang === 'ar' ? 'دقيقة أخيرة!' : 'Last minute!'}</div>`;
+                    if (!s.alerts['60']) { s.alerts['60'] = true; needsAlertSave = true; playAlert('warning60'); }
+                }
+            }
+        } else {
+            timeDisplay = `${s.units} ${translations[currentLang].tour}`;
+            progressPct = 0.7; ringOffset = circumference * 0.3;
+            elapsedText = formatMs(Date.now() - s.startTime);
+        }
+
+        if (cardEl.className !== cardClass) cardEl.className = cardClass;
+        
+        const alertBanner = document.getElementById(`alert-banner-${s.vehicleId}`);
+        if (alertBanner.innerHTML !== alertHtml) alertBanner.innerHTML = alertHtml;
+        
+        document.getElementById(`elapsed-${s.vehicleId}`).textContent = `${currentLang === 'ar' ? 'منذ' : 'since'} ${elapsedText}`;
+        document.getElementById(`ring-text-${s.vehicleId}`).textContent = s.billingType === 'timer' ? Math.max(0, Math.ceil((s.expiresAt - Date.now()) / 60000)) + 'm' : '🔁';
+        
+        const timerDisplayEl = document.getElementById(`timer-display-${s.vehicleId}`);
+        if (timerDisplayEl.textContent !== timeDisplay) timerDisplayEl.textContent = timeDisplay;
+        timerDisplayEl.className = `timer-display ${timerClass}`;
+
+        const ringEl = document.getElementById(`ring-${s.vehicleId}`);
+        ringEl.style.strokeDashoffset = ringOffset;
+        ringEl.style.stroke = timerClass === 'danger' ? 'var(--danger)' : timerClass === 'warning' ? 'var(--warning)' : 'var(--accent)';
+
+        const progressBarEl = document.getElementById(`progress-bar-${s.vehicleId}`);
+        const fillClass = ['danger', 'warning'].includes(timerClass) ? 'danger-fill' : '';
+        progressBarEl.className = `progress-bar-fill ${fillClass}`;
+        progressBarEl.style.width = s.billingType === 'timer' ? `${Math.max(0, progressPct * 100).toFixed(1)}%` : '70%';
+    });
+
+    if (needsAlertSave) SessionStore.saveLocalAlerts(currentSessions);
 }
 
 // ── Show QR for vehicle (static link) ─────
@@ -736,35 +772,38 @@ window.showVehicleQR = function(vehicleId, vehicleName) {
 };
 
 // ── Extend Session ─────────────────────────
-let extendTargetIdx = null;
+// ── Extend Session ─────────────────────────
+let extendTargetVehicleId = null;
 
-window.openExtendModal = function(idx) {
-    extendTargetIdx = idx;
+window.openExtendModal = function(vehicleId) {
+    extendTargetVehicleId = vehicleId;
     document.getElementById('extend-modal').classList.remove('hidden');
 };
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.extend-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-            if (extendTargetIdx === null) return;
+            if (!extendTargetVehicleId) return;
             const addMinutes = parseInt(btn.dataset.min);
             const addMs      = addMinutes * 60000;
             const sessions   = await SessionStore.getActive();
-            const session    = sessions[extendTargetIdx];
+            const session    = sessions.find(s => s.vehicleId === extendTargetVehicleId);
             if (!session) return;
 
-            await SessionStore.extendSession(session, addMs);
+            session.expiresAt += addMs;
+            session.totalMs   += addMs;
+
+            await SessionStore.extendSession(session);
             closeModal('extend-modal');
-            extendTargetIdx = null;
+            extendTargetVehicleId = null;
             checkActiveSessions();
         });
     });
 });
-
 // ── End Rental ─────────────────────────────
-window.endRental = async function(index) {
+window.endRental = async function(vehicleId) {
     const sessions = await SessionStore.getActive();
-    const s        = sessions[index];
+    const s = sessions.find(sess => sess.vehicleId === vehicleId);
     if (!s) return;
 
     const endTime   = Date.now();

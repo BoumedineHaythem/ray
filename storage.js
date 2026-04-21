@@ -92,7 +92,7 @@ const SessionStore = {
             totalMs:     row.total_ms,
             startTime:   row.start_time,
             expiresAt:   row.expires_at,
-            graceUntil:  null,
+            graceUntil:  row.grace_until || null,
             alerts:      {}
         };
     },
@@ -133,25 +133,38 @@ const SessionStore = {
                     total_ms:     session.totalMs,
                     start_time:   session.startTime,
                     expires_at:   session.expiresAt,
-                    grace_until:  null,
+                    grace_until:  session.graceUntil,
                     status:       'active'
                 });
                 if (rows[0]) session.supabaseId = rows[0].id;
             } catch(e) { console.warn('Supabase save failed:', e.message); }
         }
+        // FIX: Always save locally for offline fallback
+        const active = JSON.parse(UIState.get('activeSessions') || '[]');
+        active.push(session);
+        UIState.set('activeSessions', JSON.stringify(active));
         return session;
     },
 
     async endSession(session, endTime) {
+        session.endTime = endTime; // Attach for analytics
+        
         if (USE_SUPABASE && session.supabaseId) {
             try {
                 await SupaDB.patch('sessions', `id=eq.${session.supabaseId}`,
                     { status: 'completed', end_time: endTime });
             } catch(e) { console.warn('Supabase end failed:', e.message); }
         }
+        
+        // FIX: Remove from active UI state
+        const active = JSON.parse(UIState.get('activeSessions') || '[]');
+        const updated = active.filter(s => s.vehicleId !== session.vehicleId);
+        UIState.set('activeSessions', JSON.stringify(updated));
+
+        // FIX: Save to IndexedDB so Analytics & History tab work
+        await DB.saveRecord('sessions', session);
     },
 
-    // Note: app.js already mutates expiresAt/totalMs before calling this
     async extendSession(session) {
         if (USE_SUPABASE && session.supabaseId) {
             try {
@@ -159,6 +172,19 @@ const SessionStore = {
                     { expires_at: session.expiresAt, total_ms: session.totalMs });
             } catch(e) { console.warn('Supabase extend failed:', e.message); }
         }
+        
+        // FIX: Update local storage
+        const active = JSON.parse(UIState.get('activeSessions') || '[]');
+        const idx = active.findIndex(s => s.vehicleId === session.vehicleId);
+        if (idx > -1) {
+            active[idx] = session;
+            UIState.set('activeSessions', JSON.stringify(active));
+        }
+    },
+
+    // FIX: Add missing function expected by app.js
+    saveLocalAlerts(sessions) {
+        UIState.set('activeSessions', JSON.stringify(sessions));
     },
 
     async getCompleted() {
